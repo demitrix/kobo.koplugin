@@ -198,11 +198,16 @@ end
 --   - show_disconnect: boolean Whether to show disconnect option
 --   - show_configure_keys: boolean Whether to show configure keys option
 --   - show_reset_keybindings: boolean Whether to show reset keybindings option
+--   - show_configure_scroll: boolean Whether to show configure scroll option (for scrolling rings)
+--   - show_mark_as_scroll_ring: boolean Whether to show option to mark as scrolling ring
+--   - is_marked_as_scroll_ring: boolean Whether device is currently marked as scrolling ring
 --   - show_forget: boolean Whether to show forget/unpair option
 --   - on_connect: function Callback for connect action
 --   - on_disconnect: function Callback for disconnect action
 --   - on_configure_keys: function Callback for configure keys action
 --   - on_reset_keybindings: function Callback for reset keybindings action
+--   - on_configure_scroll: function Callback for configure scroll action
+--   - on_toggle_scroll_ring: function Callback to toggle scrolling ring designation
 --   - on_forget: function Callback for forget action
 -- @param on_action_complete function Optional callback when connect/disconnect/forget completes
 function UiMenus.showDeviceOptionsMenu(device_info, options, on_action_complete)
@@ -248,6 +253,38 @@ function UiMenus.showDeviceOptionsMenu(device_info, options, on_action_complete)
                 callback = function()
                     UIManager:close(dialog)
                     options.on_configure_keys()
+                end,
+            },
+        })
+    end
+
+    if options.show_configure_scroll then
+        table.insert(button_rows, {
+            {
+                text = _("Configure scroll bindings"),
+                callback = function()
+                    UIManager:close(dialog)
+                    options.on_configure_scroll()
+                end,
+            },
+        })
+    end
+
+    if options.show_mark_as_scroll_ring then
+        local toggle_text = options.is_marked_as_scroll_ring
+            and _("Unmark as scrolling ring")
+            or _("Mark as scrolling ring")
+
+        table.insert(button_rows, {
+            {
+                text = toggle_text,
+                callback = function()
+                    UIManager:close(dialog)
+                    options.on_toggle_scroll_ring()
+
+                    if on_action_complete then
+                        on_action_complete()
+                    end
                 end,
             },
         })

@@ -16,6 +16,8 @@ local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDeviceHandler = require("src/lib/bluetooth/input_device_handler")
 local NetworkMgr = require("ui/network/manager")
+local ScrollingRingBindings = require("src/scrolling_ring_bindings")
+local ScrollingRingHandler = require("src/lib/bluetooth/scrolling_ring_handler")
 local UIManager = require("ui/uimanager")
 local UiMenus = require("src/lib/bluetooth/ui_menus")
 local _ = require("gettext")
@@ -47,6 +49,9 @@ local KoboBluetooth = InputContainer:extend({
     is_discovery_active = false,
     is_auto_detection_active = false,
     is_auto_connect_active = false,
+    -- Scrolling ring support
+    scrolling_ring_handler = nil,
+    scrolling_ring_bindings = nil,
 })
 
 ---
@@ -70,6 +75,11 @@ function KoboBluetooth:init() end
 --- @param broadcast_refresh boolean Whether to broadcast a UI refresh event (default: true)
 function KoboBluetooth:_cleanup(broadcast_refresh)
     logger.dbg("KoboBluetooth: _cleanup")
+
+    -- Close scrolling ring reader/polling
+    if self.scrolling_ring_handler then
+        self.scrolling_ring_handler:closeAll()
+    end
 
     -- Stop key bindings polling
     if self.key_bindings then
@@ -143,6 +153,23 @@ function KoboBluetooth:initWithPlugin(plugin)
             plugin:saveSettings()
         end, self.input_handler)
         logger.info("KoboBluetooth: key_bindings setup with input_handler")
+
+        -- Initialize scrolling ring support
+        logger.info("KoboBluetooth: Initializing scrolling ring support")
+        self.scrolling_ring_handler = ScrollingRingHandler:new({
+            scroll_threshold = plugin.settings.scrolling_ring_threshold or 300,
+            debounce_interval = plugin.settings.scrolling_ring_debounce or 0.15,
+            invert_scroll = plugin.settings.scrolling_ring_invert or false,
+        })
+
+        self.scrolling_ring_bindings = ScrollingRingBindings:new({
+            settings = plugin.settings,
+        })
+        self.scrolling_ring_bindings:setup(function()
+            plugin:saveSettings()
+        end, self.scrolling_ring_handler)
+        self.scrolling_ring_bindings:applySettings()
+        logger.info("KoboBluetooth: Scrolling ring support initialized")
     else
         logger.warn("KoboBluetooth: Cannot create key_bindings - plugin or settings not available")
     end
@@ -157,6 +184,7 @@ function KoboBluetooth:initWithPlugin(plugin)
 
     self:_startBluetoothProcesses()
     self.input_handler:autoOpenConnectedDevices(self.device_manager:getDevices())
+    self:autoOpenScrollingRingDevices()
 end
 
 ---
@@ -376,6 +404,136 @@ function KoboBluetooth:removeAdditionalFooterContent(ui)
         ui.view.footer:removeAdditionalFooterContent(self.additional_footer_content_func)
         logger.info("KoboBluetooth: Removed Bluetooth status from footer")
     end
+end
+
+---
+-- Checks if a device is a scrolling ring based on its name.
+-- @param device_info table Device information with name field
+-- @return boolean True if device appears to be a scrolling ring
+function KoboBluetooth:isScrollingRingDevice(device_info)
+    if not self.scrolling_ring_handler then
+        return false
+    end
+
+    return self.scrolling_ring_handler:isScrollingRingDevice(device_info.name)
+end
+
+---
+-- Marks a device as a scrolling ring in settings.
+-- @param device_address string MAC address of the device
+-- @param is_scrolling_ring boolean Whether the device is a scrolling ring
+function KoboBluetooth:setDeviceAsScrollingRing(device_address, is_scrolling_ring)
+    if not self.plugin or not self.plugin.settings then
+        return
+    end
+
+    if not self.plugin.settings.scrolling_ring_devices then
+        self.plugin.settings.scrolling_ring_devices = {}
+    end
+
+    self.plugin.settings.scrolling_ring_devices[device_address] = is_scrolling_ring
+    self.plugin:saveSettings()
+
+    logger.info("KoboBluetooth: Marked device", device_address, "as scrolling ring:", is_scrolling_ring)
+end
+
+---
+-- Checks if a device is marked as a scrolling ring in settings.
+-- @param device_address string MAC address of the device
+-- @return boolean True if device is marked as a scrolling ring
+function KoboBluetooth:isDeviceMarkedAsScrollingRing(device_address)
+    if not self.plugin or not self.plugin.settings then
+        return false
+    end
+
+    local scrolling_ring_devices = self.plugin.settings.scrolling_ring_devices
+
+    if not scrolling_ring_devices then
+        return false
+    end
+
+    return scrolling_ring_devices[device_address] == true
+end
+
+---
+-- Auto-opens scrolling ring devices that are connected.
+function KoboBluetooth:autoOpenScrollingRingDevices()
+    if not self.scrolling_ring_handler or not self.device_manager then
+        return
+    end
+
+    local paired_devices = self:_getPairedDevices()
+
+    for _, device in ipairs(paired_devices) do
+        if device.connected then
+            local is_scrolling_ring = self:isDeviceMarkedAsScrollingRing(device.address)
+                or self:isScrollingRingDevice(device)
+
+            if is_scrolling_ring then
+                logger.info("KoboBluetooth: Auto-opening scrolling ring device:", device.name or device.address)
+
+                local device_path = self.input_handler:findDeviceByName(device.name)
+
+                if not device_path then
+                    device_path = self.input_handler:_autoDetectInputDevice()
+                end
+
+                self.scrolling_ring_handler:openScrollingRingDevice(device, device_path, false)
+            end
+        end
+    end
+end
+
+---
+-- Opens a scrolling ring device after connection.
+-- @param device_info table Device information
+-- @param wait_for_device boolean Whether to wait for the device to appear
+function KoboBluetooth:openScrollingRingDevice(device_info, wait_for_device)
+    if not self.scrolling_ring_handler or not self.input_handler then
+        return false
+    end
+
+    local device_path
+
+    if wait_for_device then
+        device_path = self.input_handler:waitForBluetoothInputDevice()
+    end
+
+    if not device_path and device_info.name then
+        device_path = self.input_handler:findDeviceByName(device_info.name)
+    end
+
+    if not device_path then
+        device_path = self.input_handler:_autoDetectInputDevice()
+    end
+
+    return self.scrolling_ring_handler:openScrollingRingDevice(device_info, device_path, true)
+end
+
+---
+-- Closes a scrolling ring device.
+-- @param device_info table Device information
+function KoboBluetooth:closeScrollingRingDevice(device_info)
+    if not self.scrolling_ring_handler then
+        return
+    end
+
+    self.scrolling_ring_handler:closeScrollingRingDevice(device_info)
+end
+
+---
+-- Shows the scrolling ring configuration menu for a device.
+-- @param device_info table Device information
+function KoboBluetooth:showScrollingRingConfigMenu(device_info)
+    if not self.scrolling_ring_bindings then
+        UIManager:show(InfoMessage:new({
+            text = _("Scrolling ring support not available"),
+            timeout = 2,
+        }))
+        return
+    end
+
+    self.scrolling_ring_bindings:showConfigMenu(device_info)
 end
 
 ---
@@ -1333,25 +1491,48 @@ function KoboBluetooth:showDeviceOptionsMenu(device_info)
         has_keybindings = next(bindings) ~= nil
     end
 
+    -- Check if device is a scrolling ring
+    local is_scrolling_ring = self:isDeviceMarkedAsScrollingRing(device_info.address)
+        or self:isScrollingRingDevice(device_info)
+
+    local has_scroll_bindings = false
+    if self.scrolling_ring_bindings then
+        local scroll_bindings = self.scrolling_ring_bindings:getDeviceBindings(device_info.address)
+        has_scroll_bindings = next(scroll_bindings) ~= nil
+    end
+
     local options = {
         show_connect = not device_info.connected,
         show_disconnect = device_info.connected,
-        show_configure_keys = self.key_bindings ~= nil and device_info.connected,
-        show_reset_keybindings = has_keybindings,
+        show_configure_keys = self.key_bindings ~= nil and device_info.connected and not is_scrolling_ring,
+        show_reset_keybindings = has_keybindings and not is_scrolling_ring,
+        show_reset_scroll_bindings = has_scroll_bindings and is_scrolling_ring,
+        show_configure_scroll = self.scrolling_ring_bindings ~= nil and device_info.connected and is_scrolling_ring,
+        show_mark_as_scroll_ring = device_info.connected,
+        is_marked_as_scroll_ring = self:isDeviceMarkedAsScrollingRing(device_info.address),
         show_trust = not device_info.trusted,
         show_untrust = device_info.trusted,
         show_forget = true,
 
         on_connect = function()
             self.device_manager:connectDevice(device_info, function(dev)
-                local show_notifications = self.plugin.settings.show_device_ready_notifications ~= false
-                self.input_handler:openIsolatedInputDevice(dev, show_notifications, true)
+                -- Check if this is a scrolling ring
+                if self:isDeviceMarkedAsScrollingRing(dev.address) or self:isScrollingRingDevice(dev) then
+                    self:openScrollingRingDevice(dev, true)
+                else
+                    local show_notifications = self.plugin.settings.show_device_ready_notifications ~= false
+                    self.input_handler:openIsolatedInputDevice(dev, show_notifications, true)
+                end
             end)
         end,
 
         on_disconnect = function()
             self.device_manager:disconnectDevice(device_info, function(dev)
-                self.input_handler:closeIsolatedInputDevice(dev)
+                if self:isDeviceMarkedAsScrollingRing(dev.address) then
+                    self:closeScrollingRingDevice(dev)
+                else
+                    self.input_handler:closeIsolatedInputDevice(dev)
+                end
             end)
         end,
 
@@ -1361,6 +1542,23 @@ function KoboBluetooth:showDeviceOptionsMenu(device_info)
             end
         end,
 
+        on_configure_scroll = function()
+            self:showScrollingRingConfigMenu(device_info)
+        end,
+
+        on_toggle_scroll_ring = function()
+            local current = self:isDeviceMarkedAsScrollingRing(device_info.address)
+            self:setDeviceAsScrollingRing(device_info.address, not current)
+
+            local msg = not current and _("Device marked as scrolling ring.\nReconnect to apply changes.")
+                or _("Device unmarked as scrolling ring.\nReconnect to apply changes.")
+
+            UIManager:show(InfoMessage:new({
+                text = msg,
+                timeout = 3,
+            }))
+        end,
+
         on_reset_keybindings = function()
             UIManager:show(ConfirmBox:new({
                 text = _("Are you sure you want to reset all key bindings for this device?"),
@@ -1368,6 +1566,19 @@ function KoboBluetooth:showDeviceOptionsMenu(device_info)
                 ok_callback = function()
                     if self.key_bindings then
                         self.key_bindings:clearDeviceBindings(device_info.address)
+                        self:refreshDeviceOptionsMenu(self.device_options_menu, device_info)
+                    end
+                end,
+            }))
+        end,
+
+        on_reset_scroll_bindings = function()
+            UIManager:show(ConfirmBox:new({
+                text = _("Are you sure you want to reset all scroll bindings for this device?"),
+                ok_text = _("Reset"),
+                ok_callback = function()
+                    if self.scrolling_ring_bindings then
+                        self.scrolling_ring_bindings:clearDeviceBindings(device_info.address)
                         self:refreshDeviceOptionsMenu(self.device_options_menu, device_info)
                     end
                 end,
@@ -1384,7 +1595,12 @@ function KoboBluetooth:showDeviceOptionsMenu(device_info)
 
         on_forget = function()
             self.device_manager:removeDevice(device_info, function(dev)
-                self.input_handler:closeIsolatedInputDevice(dev)
+                if self:isDeviceMarkedAsScrollingRing(dev.address) then
+                    self:closeScrollingRingDevice(dev)
+                    self:setDeviceAsScrollingRing(dev.address, nil)
+                else
+                    self.input_handler:closeIsolatedInputDevice(dev)
+                end
                 self:syncPairedDevicesToSettings()
             end)
         end,

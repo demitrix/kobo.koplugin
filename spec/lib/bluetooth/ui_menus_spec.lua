@@ -435,5 +435,108 @@ describe("UiMenus", function()
             assert.are.equal("Configure key bindings", dialog.buttons[2][1].text)
             assert.are.equal("Forget", dialog.buttons[3][1].text)
         end)
+
+        it("should show scrolling ring options when enabled", function()
+            local options = {
+                show_disconnect = true,
+                show_configure_scroll = true,
+                show_mark_as_scroll_ring = true,
+                is_marked_as_scroll_ring = false,
+                show_forget = true,
+                on_disconnect = function() end,
+                on_configure_scroll = function() end,
+                on_toggle_scroll_ring = function() end,
+                on_forget = function() end,
+            }
+
+            UiMenus.showDeviceOptionsMenu(device_info, options)
+
+            local dialog = UIManager._shown_widgets[1]
+            assert.is_not_nil(dialog)
+            assert.is_not_nil(dialog.buttons)
+            assert.are.equal(4, #dialog.buttons)
+            assert.are.equal("Disconnect", dialog.buttons[1][1].text)
+            assert.are.equal("Configure scroll bindings", dialog.buttons[2][1].text)
+            assert.are.equal("Mark as scrolling ring", dialog.buttons[3][1].text)
+            assert.are.equal("Forget", dialog.buttons[4][1].text)
+        end)
+
+        it("should show the unmark label when device is already marked as a scrolling ring", function()
+            local options = {
+                show_mark_as_scroll_ring = true,
+                is_marked_as_scroll_ring = true,
+                on_toggle_scroll_ring = function() end,
+            }
+
+            UiMenus.showDeviceOptionsMenu(device_info, options)
+
+            local dialog = UIManager._shown_widgets[1]
+            assert.are.equal(1, #dialog.buttons)
+            assert.are.equal("Unmark as scrolling ring", dialog.buttons[1][1].text)
+        end)
+
+        it("should show reset scroll bindings button when enabled", function()
+            local options = {
+                show_disconnect = true,
+                show_configure_scroll = true,
+                show_reset_scroll_bindings = true,
+                show_forget = true,
+                on_disconnect = function() end,
+                on_configure_scroll = function() end,
+                on_reset_scroll_bindings = function() end,
+                on_forget = function() end,
+            }
+
+            UiMenus.showDeviceOptionsMenu(device_info, options)
+
+            local dialog = UIManager._shown_widgets[1]
+            assert.is_not_nil(dialog)
+            assert.is_not_nil(dialog.buttons)
+            assert.are.equal(4, #dialog.buttons)
+            assert.are.equal("Disconnect", dialog.buttons[1][1].text)
+            assert.are.equal("Configure scroll bindings", dialog.buttons[2][1].text)
+            assert.are.equal("Reset scroll bindings", dialog.buttons[3][1].text)
+            assert.are.equal("Forget", dialog.buttons[4][1].text)
+        end)
+
+        it("should call on_reset_scroll_bindings callback when reset scroll button is clicked", function()
+            local callback_called = false
+            local options = {
+                show_reset_scroll_bindings = true,
+                on_reset_scroll_bindings = function()
+                    callback_called = true
+                end,
+            }
+
+            UiMenus.showDeviceOptionsMenu(device_info, options)
+
+            local dialog = UIManager._shown_widgets[1]
+            assert.are.equal(1, #dialog.buttons)
+            assert.are.equal("Reset scroll bindings", dialog.buttons[1][1].text)
+
+            dialog.buttons[1][1].callback()
+
+            assert.is_true(callback_called)
+        end)
+
+        it("should not show reset scroll bindings button when disabled", function()
+            local options = {
+                show_disconnect = true,
+                show_configure_scroll = true,
+                show_reset_scroll_bindings = false,
+                show_forget = true,
+                on_disconnect = function() end,
+                on_configure_scroll = function() end,
+                on_forget = function() end,
+            }
+
+            UiMenus.showDeviceOptionsMenu(device_info, options)
+
+            local dialog = UIManager._shown_widgets[1]
+            assert.are.equal(3, #dialog.buttons)
+            assert.are.equal("Disconnect", dialog.buttons[1][1].text)
+            assert.are.equal("Configure scroll bindings", dialog.buttons[2][1].text)
+            assert.are.equal("Forget", dialog.buttons[3][1].text)
+        end)
     end)
 end)

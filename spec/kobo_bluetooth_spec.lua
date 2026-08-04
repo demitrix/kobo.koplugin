@@ -552,15 +552,17 @@ describe("KoboBluetooth", function()
 
                     instance:refreshDeviceOptionsMenu(mock_menu, device_info)
 
-                    -- New dialog should have 4 button rows: Disconnect, Configure key bindings, Untrust, and Forget
+                    -- New dialog should have 5 button rows: Disconnect, Configure key bindings,
+                    -- Mark as scrolling ring, Untrust, and Forget
                     local new_dialog = UIManager._shown_widgets[#UIManager._shown_widgets]
                     assert.is_not_nil(new_dialog)
                     assert.is_not_nil(new_dialog.buttons)
-                    assert.are.equal(4, #new_dialog.buttons)
+                    assert.are.equal(5, #new_dialog.buttons)
                     assert.are.equal("Disconnect", new_dialog.buttons[1][1].text)
                     assert.are.equal("Configure key bindings", new_dialog.buttons[2][1].text)
-                    assert.are.equal("Untrust", new_dialog.buttons[3][1].text)
-                    assert.are.equal("Forget", new_dialog.buttons[4][1].text)
+                    assert.are.equal("Mark as scrolling ring", new_dialog.buttons[3][1].text)
+                    assert.are.equal("Untrust", new_dialog.buttons[4][1].text)
+                    assert.are.equal("Forget", new_dialog.buttons[5][1].text)
                 end
             )
 
@@ -677,16 +679,18 @@ describe("KoboBluetooth", function()
 
                 instance:refreshDeviceOptionsMenu(mock_menu, device_info)
 
-                -- New dialog should have 4 button rows: Disconnect, Configure key bindings, Untrust, and Forget
+                -- New dialog should have 5 button rows: Disconnect, Configure key bindings,
+                -- Mark as scrolling ring, Untrust, and Forget
                 local new_dialog = UIManager._shown_widgets[#UIManager._shown_widgets]
                 assert.is_not_nil(new_dialog)
                 assert.is_not_nil(new_dialog.buttons)
-                assert.are.equal(4, #new_dialog.buttons)
+                assert.are.equal(5, #new_dialog.buttons)
                 assert.are.equal("Disconnect", new_dialog.buttons[1][1].text)
                 assert.is_not_nil(new_dialog.buttons[1][1].callback)
                 assert.are.equal("Configure key bindings", new_dialog.buttons[2][1].text)
-                assert.are.equal("Untrust", new_dialog.buttons[3][1].text)
-                assert.are.equal("Forget", new_dialog.buttons[4][1].text)
+                assert.are.equal("Mark as scrolling ring", new_dialog.buttons[3][1].text)
+                assert.are.equal("Untrust", new_dialog.buttons[4][1].text)
+                assert.are.equal("Forget", new_dialog.buttons[5][1].text)
             end)
 
             it("should call removeDevice when forget button is clicked", function()
@@ -790,13 +794,15 @@ describe("KoboBluetooth", function()
                 assert.is_not_nil(dialog)
                 assert.is_not_nil(dialog.buttons)
 
-                -- Should have 5 buttons: Disconnect, Configure key bindings, Untrust, Reset key bindings, Forget
-                assert.are.equal(5, #dialog.buttons)
+                -- Should have 6 buttons: Disconnect, Configure key bindings, Mark as scrolling ring,
+                -- Untrust, Reset key bindings, Forget
+                assert.are.equal(6, #dialog.buttons)
                 assert.are.equal("Disconnect", dialog.buttons[1][1].text)
                 assert.are.equal("Configure key bindings", dialog.buttons[2][1].text)
-                assert.are.equal("Untrust", dialog.buttons[3][1].text)
-                assert.are.equal("Reset key bindings", dialog.buttons[4][1].text)
-                assert.are.equal("Forget", dialog.buttons[5][1].text)
+                assert.are.equal("Mark as scrolling ring", dialog.buttons[3][1].text)
+                assert.are.equal("Untrust", dialog.buttons[4][1].text)
+                assert.are.equal("Reset key bindings", dialog.buttons[5][1].text)
+                assert.are.equal("Forget", dialog.buttons[6][1].text)
             end)
 
             it("should not show reset keybindings button when device has no key bindings", function()
@@ -826,12 +832,14 @@ describe("KoboBluetooth", function()
                 assert.is_not_nil(dialog)
                 assert.is_not_nil(dialog.buttons)
 
-                -- Should have 4 buttons: Disconnect, Configure key bindings, Untrust, Forget (no reset button)
-                assert.are.equal(4, #dialog.buttons)
+                -- Should have 5 buttons: Disconnect, Configure key bindings, Mark as scrolling ring,
+                -- Untrust, Forget (no reset button)
+                assert.are.equal(5, #dialog.buttons)
                 assert.are.equal("Disconnect", dialog.buttons[1][1].text)
                 assert.are.equal("Configure key bindings", dialog.buttons[2][1].text)
-                assert.are.equal("Untrust", dialog.buttons[3][1].text)
-                assert.are.equal("Forget", dialog.buttons[4][1].text)
+                assert.are.equal("Mark as scrolling ring", dialog.buttons[3][1].text)
+                assert.are.equal("Untrust", dialog.buttons[4][1].text)
+                assert.are.equal("Forget", dialog.buttons[5][1].text)
             end)
 
             it("should call clearDeviceBindings when reset keybindings button is clicked", function()

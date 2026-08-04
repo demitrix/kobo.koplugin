@@ -186,7 +186,6 @@ function ScrollingRingReader:_onTouchEnd(time)
         self:resetScrollState()
         return
     end
-
     -- Check debounce
     local current_time = self:_getCurrentTime()
     local time_since_last = current_time - self.last_scroll_time
@@ -195,7 +194,6 @@ function ScrollingRingReader:_onTouchEnd(time)
         self:resetScrollState()
         return
     end
-
     -- Determine direction: positive delta = last > first = scroll up
     local direction
     if delta > 0 then
@@ -214,7 +212,6 @@ function ScrollingRingReader:_onTouchEnd(time)
             logger.warn("ScrollingRingReader: Callback error:", err)
         end
     end
-
     self:resetScrollState()
 end
 
@@ -225,13 +222,11 @@ function ScrollingRingReader:_processYEvent(y_value)
     if not self.in_touch then
         return
     end
-
     -- Capture first Y if not set
     if self.first_y == nil then
         self.first_y = y_value
         logger.dbg("ScrollingRingReader: First Y=", y_value)
     end
-
     -- Always update last Y
     self.last_y = y_value
 end
@@ -322,7 +317,6 @@ function ScrollingRingReader:poll(timeout_ms)
                         self:_onTouchEnd(ev.time)
                     end
                 end
-
                 -- Trigger key callbacks on press only
                 if ev.value == 1 then
                     for _, callback in ipairs(self.key_callbacks) do

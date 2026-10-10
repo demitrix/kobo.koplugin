@@ -286,6 +286,9 @@ end
 
 ---
 -- Starts polling for scrolling ring input events.
+-- Additional calls are ignored while a poll callback is already scheduled.
+-- The callback is stored on `poll_task` so `stopPolling` can unschedule it
+-- (UIManager:scheduleIn returns nothing, so its result cannot be used).
 function ScrollingRingHandler:startPolling()
     if self.poll_task then
         logger.dbg("ScrollingRingHandler: Already polling")
@@ -296,21 +299,30 @@ function ScrollingRingHandler:startPolling()
     logger.info("ScrollingRingHandler: Number of ring_readers:", self:_countReaders())
 
     local poll_count = 0
-    local function poll()
+    local poll_task
+    poll_task = function()
+        if self.poll_task ~= poll_task then
+            return
+        end
+
         if self:hasReaders() then
             poll_count = poll_count + 1
             if poll_count % 100 == 0 then
                 logger.dbg("ScrollingRingHandler: Poll cycle", poll_count)
             end
             self:pollAllReaders(0)
-            self.poll_task = UIManager:scheduleIn(self.poll_interval, poll)
+
+            if self.poll_task == poll_task then
+                UIManager:scheduleIn(self.poll_interval, poll_task)
+            end
         else
             self.poll_task = nil
             logger.info("ScrollingRingHandler: Stopped polling (no readers)")
         end
     end
 
-    self.poll_task = UIManager:scheduleIn(self.poll_interval, poll)
+    self.poll_task = poll_task
+    UIManager:scheduleIn(self.poll_interval, poll_task)
     logger.info("ScrollingRingHandler: Poll task scheduled with interval:", self.poll_interval)
 end
 

@@ -452,6 +452,7 @@ function KoboBluetooth:isDeviceMarkedAsScrollingRing(device_address)
 
     return scrolling_ring_devices[device_address] == true
 end
+
 ---
 -- Opens the appropriate input reader for a connected device.
 -- Scrolling rings get a ScrollingRingReader, everything else an isolated key reader.

@@ -485,10 +485,35 @@ function KoboBluetooth:autoOpenScrollingRingDevices()
 end
 
 ---
+-- Opens the appropriate input reader for a connected device.
+-- Scrolling rings get a ScrollingRingReader, everything else an isolated key reader.
+-- @param device_info table Device information
+-- @param show_messages boolean Whether to show UI messages
+-- @param wait_for_device boolean Whether to wait for the device to appear
+-- @return boolean True if successfully opened
+function KoboBluetooth:_openInputForDevice(device_info, show_messages, wait_for_device)
+    if
+        self.scrolling_ring_handler
+        and (self:isDeviceMarkedAsScrollingRing(device_info.address) or self:isScrollingRingDevice(device_info))
+    then
+        return self:openScrollingRingDevice(device_info, wait_for_device, show_messages)
+    end
+
+    local success = self.input_handler:openIsolatedInputDevice(device_info, show_messages, wait_for_device)
+
+    if success and self.key_bindings then
+        self.key_bindings:startPolling()
+    end
+
+    return success
+end
+
+---
 -- Opens a scrolling ring device after connection.
 -- @param device_info table Device information
 -- @param wait_for_device boolean Whether to wait for the device to appear
-function KoboBluetooth:openScrollingRingDevice(device_info, wait_for_device)
+-- @param show_messages boolean Whether to show UI messages (default: true)
+function KoboBluetooth:openScrollingRingDevice(device_info, wait_for_device, show_messages)
     if not self.scrolling_ring_handler or not self.input_handler then
         return false
     end
@@ -507,7 +532,11 @@ function KoboBluetooth:openScrollingRingDevice(device_info, wait_for_device)
         device_path = self.input_handler:_autoDetectInputDevice()
     end
 
-    return self.scrolling_ring_handler:openScrollingRingDevice(device_info, device_path, true)
+    if show_messages == nil then
+        show_messages = true
+    end
+
+    return self.scrolling_ring_handler:openScrollingRingDevice(device_info, device_path, show_messages)
 end
 
 ---
@@ -841,6 +870,10 @@ function KoboBluetooth:_handleDisconnection(device_address)
         self.last_seen_rssi[device_address] = device.rssi
     end
 
+    if self.scrolling_ring_handler and self.scrolling_ring_handler:getReader(device_address) then
+        self:closeScrollingRingDevice(device)
+    end
+
     logger.dbg("KoboBluetooth: restarting auto-connect and auto-detect polling after disconnect")
 
     self:startAutoConnectPolling()
@@ -871,7 +904,7 @@ function KoboBluetooth:_handleConnection(device_address)
     logger.info("KoboBluetooth: Auto-opening input device for", device.name or device.address)
 
     local show_notifications = self.plugin.settings.show_device_ready_notifications ~= false
-    local success = self.input_handler:openIsolatedInputDevice(device, show_notifications, true)
+    local success = self:_openInputForDevice(device, show_notifications, true)
 
     if success then
         logger.info("KoboBluetooth: Auto-opened input device for", device.name or device.address)
@@ -879,10 +912,6 @@ function KoboBluetooth:_handleConnection(device_address)
         -- Clear last seen RSSI since device is now connected
         -- This resets tracking for the next disconnect/reconnect cycle
         self.last_seen_rssi[device_address] = nil
-
-        if self.key_bindings then
-            self.key_bindings:startPolling()
-        end
 
         if
             self.plugin.settings.disable_auto_detection_after_connect
@@ -1078,13 +1107,10 @@ function KoboBluetooth:showScanResultsMenu(devices)
     UiMenus.showScanResults(devices, function(device_info)
         self.device_manager:toggleConnection(device_info, function(dev)
             local show_notifications = self.plugin.settings.show_device_ready_notifications ~= false
-            self.input_handler:openIsolatedInputDevice(dev, show_notifications, true)
-
-            if self.key_bindings then
-                self.key_bindings:startPolling()
-            end
+            self:_openInputForDevice(dev, show_notifications, true)
         end, function(dev)
             self.input_handler:closeIsolatedInputDevice(dev)
+            self:closeScrollingRingDevice(dev)
         end)
 
         self:syncPairedDevicesToSettings()
@@ -1446,11 +1472,7 @@ function KoboBluetooth:connectToDevice(address, show_notification)
 
     logger.info("KoboBluetooth: Connecting to device:", address)
     local connection_result = self.device_manager:connectDevice(device_info, function(dev)
-        self.input_handler:openIsolatedInputDevice(dev, false, true)
-
-        if self.key_bindings then
-            self.key_bindings:startPolling()
-        end
+        self:_openInputForDevice(dev, false, true)
     end)
 
     if message then
@@ -1516,13 +1538,8 @@ function KoboBluetooth:showDeviceOptionsMenu(device_info)
 
         on_connect = function()
             self.device_manager:connectDevice(device_info, function(dev)
-                -- Check if this is a scrolling ring
-                if self:isDeviceMarkedAsScrollingRing(dev.address) or self:isScrollingRingDevice(dev) then
-                    self:openScrollingRingDevice(dev, true)
-                else
-                    local show_notifications = self.plugin.settings.show_device_ready_notifications ~= false
-                    self.input_handler:openIsolatedInputDevice(dev, show_notifications, true)
-                end
+                local show_notifications = self.plugin.settings.show_device_ready_notifications ~= false
+                self:_openInputForDevice(dev, show_notifications, true)
             end)
         end,
 

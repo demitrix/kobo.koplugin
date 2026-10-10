@@ -176,6 +176,14 @@ function ScrollingRingHandler:openScrollingRingDevice(device_info, device_path, 
 
     logger.info("ScrollingRingHandler: Opening scrolling ring device:", device_path, "for", device_info.address)
 
+    -- Release any stale reader left over from a previous connection (e.g. before suspend)
+    local existing = self.ring_readers[device_info.address]
+    if existing then
+        logger.info("ScrollingRingHandler: Closing stale reader for", device_info.address)
+        existing.reader:close()
+        self.ring_readers[device_info.address] = nil
+    end
+
     local reader = ScrollingRingReader:new({
         scroll_threshold = self.scroll_threshold,
         debounce_interval = self.debounce_interval,

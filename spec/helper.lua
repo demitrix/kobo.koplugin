@@ -1002,6 +1002,10 @@ local function createIOOpenMocker()
 end
 -- Mock lua-ljsqlite3 module
 if not package.preload["lua-ljsqlite3/init"] then
+    -- Allows tests to override the DateLastRead value returned for any book,
+    -- e.g. to exercise timezone parsing in parseKoboTimestamp.
+    local custom_date_last_read = nil
+
     -- Helper functions for query result logic
     ---
     -- Returns mock results for main book entry queries based on the query string.
@@ -1009,6 +1013,15 @@ if not package.preload["lua-ljsqlite3/init"] then
     -- @param query string: The SQL query string.
     -- @return table: Mocked result rows.
     local function result_main_book_entry(query)
+        if custom_date_last_read then
+            return {
+                { custom_date_last_read },
+                { 1 },
+                { "test_book_1!!chapter_5.html#kobo.1.1" },
+                { 0 },
+            }
+        end
+
         if query:match("finished_book") then
             return {
                 { "2025-11-08 15:30:45.000+00:00" },
@@ -1198,8 +1211,39 @@ if not package.preload["lua-ljsqlite3/init"] then
             should_fail_open = false,
             should_fail_prepare = false,
             book_rows = {},
+            book_records = nil,
             content_keys = {},
         }
+
+        ---
+        -- Projects name-keyed records onto the columns a query actually SELECTs, like SQLite would.
+        -- Columns the query does not select come back as nil, so a query that forgets a column
+        -- fails the test instead of being papered over by positional fixtures.
+        -- @param query string: The prepared SQL, of the form "SELECT a, b FROM ...".
+        -- @param records table: Array of records keyed by column name.
+        -- @return table: Array of positional rows in the query's column order.
+        local function projectRecords(query, records)
+            local column_list = query:match("SELECT%s+(.-)%s+FROM") or ""
+            local columns = {}
+
+            for column in column_list:gmatch("[^,%s]+") do
+                table.insert(columns, column)
+            end
+
+            local rows = {}
+
+            for _, record in ipairs(records) do
+                local row = {}
+
+                for index, column in ipairs(columns) do
+                    row[index] = record[column]
+                end
+
+                table.insert(rows, row)
+            end
+
+            return rows
+        end
 
         return {
             OPEN_READONLY = 1,
@@ -1228,10 +1272,25 @@ if not package.preload["lua-ljsqlite3/init"] then
                 mock_db_state.book_rows = rows or {}
             end,
             ---
+            -- Set mock book records keyed by column name (e.g. { ContentID = "b1", Title = "T" }).
+            -- Rows are projected onto the columns the prepared query selects; takes precedence over
+            -- _setBookRows.
+            -- @param records table: Array of records keyed by column name.
+            _setBookRecords = function(records)
+                mock_db_state.book_records = records
+            end,
+            ---
             -- Set mock content keys for books.
             -- @param keys table: Map of book_id -> boolean indicating if keys exist.
             _setContentKeys = function(keys)
                 mock_db_state.content_keys = keys or {}
+            end,
+            ---
+            -- Override the DateLastRead string returned for the main book entry query.
+            -- Used to test parseKoboTimestamp's timezone handling regardless of book ID.
+            -- @param value string|nil: Date string to return, or nil to clear the override.
+            _setDateLastRead = function(value)
+                custom_date_last_read = value
             end,
             ---
             -- Clear all mock database state.
@@ -1239,7 +1298,9 @@ if not package.preload["lua-ljsqlite3/init"] then
                 mock_db_state.should_fail_open = false
                 mock_db_state.should_fail_prepare = false
                 mock_db_state.book_rows = {}
+                mock_db_state.book_records = nil
                 mock_db_state.content_keys = {}
+                custom_date_last_read = nil
             end,
             open = function(path, flags)
                 if mock_db_state.should_fail_open then
@@ -1304,6 +1365,10 @@ if not package.preload["lua-ljsqlite3/init"] then
                             end,
                             rows = function(stmt_self)
                                 local rows = mock_db_state.book_rows
+                                if mock_db_state.book_records then
+                                    rows = projectRecords(stmt_self._query, mock_db_state.book_records)
+                                end
+
                                 local index = 0
                                 return function()
                                     index = index + 1
@@ -1327,18 +1392,43 @@ if not package.preload["lua-ljsqlite3/init"] then
     end
 end
 
+---
+--- Creates a mock ReadHistory module table.
+---
+--- Mirrors KOReader's real ReadHistory:addItem(file, ts) semantics: if an
+--- entry for `file` already exists, it is removed first, then the new entry
+--- is inserted at the FRONT of the history (most recent first). This is NOT
+--- a plain append - callers relying on `hist[1]` being the latest entry, or
+--- on a file appearing only once, depend on this behavior.
+--- @param hist table|nil: Initial history entries (array of {file=, time=}).
+--- @return table: Mock ReadHistory module with hist, addItem and addRecord.
+local function createMockReadHistory(hist)
+    local history = hist or {}
+
+    return {
+        hist = history,
+        addItem = function(self, file, ts)
+            for i, entry in ipairs(self.hist) do
+                if entry.file == file then
+                    table.remove(self.hist, i)
+                    break
+                end
+            end
+            table.insert(self.hist, 1, { file = file, time = ts })
+        end,
+        addRecord = function(self, record)
+            table.insert(self.hist, record)
+        end,
+    }
+end
+
 -- Mock readhistory module
 if not package.preload["readhistory"] then
     package.preload["readhistory"] = function()
-        return {
-            hist = {
-                { file = "/test/book1.epub", time = 1699500000 },
-                { file = "/test/book2.epub", time = 1699600000 },
-            },
-            addRecord = function(self, record)
-                table.insert(self.hist, record)
-            end,
-        }
+        return createMockReadHistory({
+            { file = "/test/book1.epub", time = 1699500000 },
+            { file = "/test/book2.epub", time = 1699600000 },
+        })
     end
 end
 
@@ -1428,8 +1518,15 @@ if not package.preload["ui/uimanager"] then
 
         function UIManager:unschedule(task_id)
             table.insert(self._unschedule_calls, { task_id = task_id })
-            if self._scheduled_tasks then
-                self._scheduled_tasks[task_id] = nil
+            if not self._scheduled_tasks then
+                return
+            end
+
+            self._scheduled_tasks[task_id] = nil
+            for id, task in pairs(self._scheduled_tasks) do
+                if task and task.callback == task_id then
+                    self._scheduled_tasks[id] = nil
+                end
             end
         end
 
@@ -2189,6 +2286,7 @@ end
 
 return {
     createMockDocSettings = createMockDocSettings,
+    createMockReadHistory = createMockReadHistory,
     resetUIMocks = resetUIMocks,
     createIOOpenMocker = createIOOpenMocker,
 }

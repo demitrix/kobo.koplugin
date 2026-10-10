@@ -183,8 +183,6 @@ function KoboBluetooth:initWithPlugin(plugin)
     end
 
     self:_startBluetoothProcesses()
-    self.input_handler:autoOpenConnectedDevices(self.device_manager:getDevices())
-    self:autoOpenScrollingRingDevices()
 end
 
 ---
@@ -454,36 +452,6 @@ function KoboBluetooth:isDeviceMarkedAsScrollingRing(device_address)
 
     return scrolling_ring_devices[device_address] == true
 end
-
----
--- Auto-opens scrolling ring devices that are connected.
-function KoboBluetooth:autoOpenScrollingRingDevices()
-    if not self.scrolling_ring_handler or not self.device_manager then
-        return
-    end
-
-    local paired_devices = self:_getPairedDevices()
-
-    for _, device in ipairs(paired_devices) do
-        if device.connected then
-            local is_scrolling_ring = self:isDeviceMarkedAsScrollingRing(device.address)
-                or self:isScrollingRingDevice(device)
-
-            if is_scrolling_ring then
-                logger.info("KoboBluetooth: Auto-opening scrolling ring device:", device.name or device.address)
-
-                local device_path = self.input_handler:findDeviceByName(device.name)
-
-                if not device_path then
-                    device_path = self.input_handler:_autoDetectInputDevice()
-                end
-
-                self.scrolling_ring_handler:openScrollingRingDevice(device, device_path, false)
-            end
-        end
-    end
-end
-
 ---
 -- Opens the appropriate input reader for a connected device.
 -- Scrolling rings get a ScrollingRingReader, everything else an isolated key reader.
@@ -520,12 +488,12 @@ function KoboBluetooth:openScrollingRingDevice(device_info, wait_for_device, sho
 
     local device_path
 
-    if wait_for_device then
-        device_path = self.input_handler:waitForBluetoothInputDevice()
+    if device_info.name then
+        device_path = self.input_handler:findDeviceByName(device_info.name)
     end
 
-    if not device_path and device_info.name then
-        device_path = self.input_handler:findDeviceByName(device_info.name)
+    if not device_path and wait_for_device then
+        device_path = self.input_handler:waitForBluetoothInputDevice()
     end
 
     if not device_path then
@@ -604,6 +572,26 @@ function KoboBluetooth:_startBluetoothProcesses()
 
     if self.key_bindings then
         self.key_bindings:startPolling()
+    end
+
+    -- Devices often reconnect while Bluetooth is still coming up (e.g. after resume),
+    -- so no Connected signal follows. Open readers for anything already connected.
+    self:_autoOpenConnectedInputs()
+end
+
+---
+--- Opens the appropriate input reader for every device that is already connected.
+--- Scrolling rings get a ScrollingRingReader, other devices an isolated key reader.
+function KoboBluetooth:_autoOpenConnectedInputs()
+    if not self.device_manager or not self.input_handler then
+        return
+    end
+
+    for _, device in ipairs(self.device_manager:getDevices()) do
+        if device.connected then
+            logger.info("KoboBluetooth: Auto-opening already connected device:", device.name or device.address)
+            self:_openInputForDevice(device, false, true)
+        end
     end
 end
 
@@ -701,7 +689,6 @@ function KoboBluetooth:_pollForBluetoothEnabledAndRestoreWifi(
     end
 
     self:_startBluetoothProcesses()
-    self.input_handler:autoOpenConnectedDevices(self.device_manager:getDevices())
 
     self:_restoreWifiState(is_resume, initial_wifi_was_on)
 
